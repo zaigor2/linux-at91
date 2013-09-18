@@ -264,6 +264,9 @@
 #define PID_OV2640	0x2642
 #define VERSION(pid, ver) ((pid << 8) | (ver & 0xFF))
 
+#define OV2640_SIZE(n, w, h, r) \
+	{.name = n, .width = w , .height = h, .regs = r }
+
 /*
  * Struct
  */
@@ -279,6 +282,10 @@ struct ov2640_win_size {
 	const struct regval_list	*regs;
 };
 
+#include "ov2643.h"
+
+#define V4L2_IDENT_OV2640	0
+#define V4L2_IDENT_OV2643	3
 
 struct ov2640_priv {
 	struct v4l2_subdev		subdev;
@@ -286,6 +293,7 @@ struct ov2640_priv {
 	u32	cfmt_code;
 	struct v4l2_clk			*clk;
 	const struct ov2640_win_size	*win;
+	int				model;
 
 	struct soc_camera_subdev_desc	ssdd_dt;
 	struct gpio_desc *resetb_gpio;
@@ -548,9 +556,6 @@ static const struct regval_list ov2640_uxga_regs[] = {
 	ENDMARKER,
 };
 
-#define OV2640_SIZE(n, w, h, r) \
-	{.name = n, .width = w , .height = h, .regs = r }
-
 static const struct ov2640_win_size ov2640_supported_win_sizes[] = {
 	OV2640_SIZE("QCIF", QCIF_WIDTH, QCIF_HEIGHT, ov2640_qcif_regs),
 	OV2640_SIZE("QVGA", QVGA_WIDTH, QVGA_HEIGHT, ov2640_qvga_regs),
@@ -751,22 +756,32 @@ static int ov2640_s_power(struct v4l2_subdev *sd, int on)
 }
 
 /* Select the nearest higher resolution for capture */
-static const struct ov2640_win_size *ov2640_select_win(u32 *width, u32 *height)
+static const struct ov2640_win_size *ov2640_select_win(u32 *width, u32 *height,
+		struct ov2640_priv *priv)
 {
 	int i, default_size = ARRAY_SIZE(ov2640_supported_win_sizes) - 1;
+	const struct ov2640_win_size *p_win_sizes;
 
-	for (i = 0; i < ARRAY_SIZE(ov2640_supported_win_sizes); i++) {
-		if (ov2640_supported_win_sizes[i].width  >= *width &&
-		    ov2640_supported_win_sizes[i].height >= *height) {
-			*width = ov2640_supported_win_sizes[i].width;
-			*height = ov2640_supported_win_sizes[i].height;
-			return &ov2640_supported_win_sizes[i];
+	if (priv->model == V4L2_IDENT_OV2640) {
+		p_win_sizes = ov2640_supported_win_sizes;
+		default_size = ARRAY_SIZE(ov2640_supported_win_sizes);
+	} else {
+		p_win_sizes = ov2643_supported_win_sizes;
+		default_size = ARRAY_SIZE(ov2643_supported_win_sizes);
+	}
+
+	for (i = 0; i < default_size + 1; i++) {
+		if (p_win_sizes[i].width  >= *width &&
+		    p_win_sizes[i].height >= *height) {
+			*width = p_win_sizes[i].width;
+			*height = p_win_sizes[i].height;
+			return &p_win_sizes[i];
 		}
 	}
 
-	*width = ov2640_supported_win_sizes[default_size].width;
-	*height = ov2640_supported_win_sizes[default_size].height;
-	return &ov2640_supported_win_sizes[default_size];
+	*width = p_win_sizes[default_size].width;
+	*height = p_win_sizes[default_size].height;
+	return &p_win_sizes[default_size];
 }
 
 static int ov2640_set_params(struct i2c_client *client, u32 *width, u32 *height,
@@ -777,7 +792,7 @@ static int ov2640_set_params(struct i2c_client *client, u32 *width, u32 *height,
 	int ret;
 
 	/* select win */
-	priv->win = ov2640_select_win(width, height);
+	priv->win = ov2640_select_win(width, height, priv);
 
 	/* select format */
 	priv->cfmt_code = 0;
@@ -845,6 +860,30 @@ err:
 	return ret;
 }
 
+static int ov2643_set_params(struct i2c_client *client, u32 *width, u32 *height,
+			     u32 code)
+{
+	struct ov2640_priv       *priv = to_ov2640(client);
+	int ret;
+
+	/* select win */
+	priv->win = ov2640_select_win(width, height, priv);
+
+	if (code != MEDIA_BUS_FMT_UYVY8_2X8) {
+		dev_err(&client->dev, "Not supported format: %d\n", code);
+		return -1;
+	}
+
+	/* set size win */
+	ret = ov2640_write_array(client, priv->win->regs);
+
+	priv->cfmt_code = code;
+	*width = priv->win->width;
+	*height = priv->win->height;
+
+	return 0;
+}
+
 static int ov2640_get_fmt(struct v4l2_subdev *sd,
 		struct v4l2_subdev_pad_config *cfg,
 		struct v4l2_subdev_format *format)
@@ -858,7 +897,7 @@ static int ov2640_get_fmt(struct v4l2_subdev *sd,
 
 	if (!priv->win) {
 		u32 width = SVGA_WIDTH, height = SVGA_HEIGHT;
-		priv->win = ov2640_select_win(&width, &height);
+		priv->win = ov2640_select_win(&width, &height, priv);
 		priv->cfmt_code = MEDIA_BUS_FMT_UYVY8_2X8;
 	}
 
@@ -887,6 +926,7 @@ static int ov2640_set_fmt(struct v4l2_subdev *sd,
 {
 	struct v4l2_mbus_framefmt *mf = &format->format;
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	struct ov2640_priv *priv = to_ov2640(client);
 
 	if (format->pad)
 		return -EINVAL;
@@ -894,7 +934,7 @@ static int ov2640_set_fmt(struct v4l2_subdev *sd,
 	/*
 	 * select suitable win, but don't store it
 	 */
-	ov2640_select_win(&mf->width, &mf->height);
+	ov2640_select_win(&mf->width, &mf->height, priv);
 
 	mf->field	= V4L2_FIELD_NONE;
 
@@ -910,9 +950,14 @@ static int ov2640_set_fmt(struct v4l2_subdev *sd,
 		mf->colorspace = V4L2_COLORSPACE_JPEG;
 	}
 
-	if (format->which == V4L2_SUBDEV_FORMAT_ACTIVE)
-		return ov2640_set_params(client, &mf->width,
+	if (format->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
+		if (priv->model == V4L2_IDENT_OV2640)
+			return ov2640_set_params(client, &mf->width,
 					 &mf->height, mf->code);
+		else
+			return ov2643_set_params(client, &mf->width,
+					 &mf->height, mf->code);
+	}
 	cfg->try_fmt = *mf;
 	return 0;
 }
@@ -976,6 +1021,11 @@ static int ov2640_video_probe(struct i2c_client *client)
 	switch (VERSION(pid, ver)) {
 	case PID_OV2640:
 		devname     = "ov2640";
+		priv->model = V4L2_IDENT_OV2640;
+		break;
+	case PID_OV2643:
+		devname     = "ov2643";
+		priv->model = V4L2_IDENT_OV2643;
 		break;
 	default:
 		dev_err(&client->dev,
