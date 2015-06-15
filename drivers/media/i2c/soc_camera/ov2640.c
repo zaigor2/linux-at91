@@ -966,6 +966,19 @@ static int ov2640_enum_mbus_code(struct v4l2_subdev *sd,
 		struct v4l2_subdev_pad_config *cfg,
 		struct v4l2_subdev_mbus_code_enum *code)
 {
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	struct ov2640_priv *priv = to_ov2640(client);
+
+	if (priv->model == V4L2_IDENT_OV2643) {
+		/* OV2643 only support UYVY format */
+		if (code->pad || code->index > 0)
+			return -EINVAL;
+
+		code->code = MEDIA_BUS_FMT_UYVY8_2X8;
+		return 0;
+	}
+
+	/* OV2640 */
 	if (code->pad || code->index >= ARRAY_SIZE(ov2640_codes))
 		return -EINVAL;
 
