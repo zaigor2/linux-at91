@@ -886,7 +886,8 @@ static int ov2643_set_params(struct i2c_client *client, u32 *width, u32 *height,
 	/* select win */
 	priv->win = ov2640_select_win(width, height, priv);
 
-	if (code != MEDIA_BUS_FMT_UYVY8_2X8 && code != MEDIA_BUS_FMT_RGB565_2X8_LE) {
+	if (code != MEDIA_BUS_FMT_UYVY8_2X8 && code != MEDIA_BUS_FMT_RGB565_2X8_LE &&
+			code != MEDIA_BUS_FMT_SBGGR8_1X8) {
 		dev_err(&client->dev, "Not supported format: %d\n", code);
 		return -1;
 	}
@@ -908,6 +909,13 @@ static int ov2643_set_params(struct i2c_client *client, u32 *width, u32 *height,
 
 		ov2640_mask_set(client, OV2643_DVP2_REG,
 				OV2643_DVP2_MASK_RGB_SEL, OV2643_DVP2_FORMAT_RGB565);
+	} else if (code == MEDIA_BUS_FMT_SBGGR8_1X8) {
+		/* set raw RGB BGGR output */
+		ov2640_mask_set(client, OV2643_SYS_REG,
+				OV2643_SYS_MASK_FORMAT_SEL, OV2643_SYS_FORMAT_RAW);
+
+		ov2640_mask_set(client, OV2643_DVP2_REG,
+				OV2643_DVP2_MASK_RAW_SEL, OV2643_DVP2_RAW_FROM_ISP);
 	}
 
 	priv->cfmt_code = code;
@@ -941,6 +949,8 @@ static int ov2640_get_fmt(struct v4l2_subdev *sd,
 	switch (mf->code) {
 	case MEDIA_BUS_FMT_RGB565_2X8_BE:
 	case MEDIA_BUS_FMT_RGB565_2X8_LE:
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
 		mf->colorspace = V4L2_COLORSPACE_SRGB;
 		break;
 	default:
@@ -974,6 +984,8 @@ static int ov2640_set_fmt(struct v4l2_subdev *sd,
 	switch (mf->code) {
 	case MEDIA_BUS_FMT_RGB565_2X8_BE:
 	case MEDIA_BUS_FMT_RGB565_2X8_LE:
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
 		mf->colorspace = V4L2_COLORSPACE_SRGB;
 		break;
 	default:
