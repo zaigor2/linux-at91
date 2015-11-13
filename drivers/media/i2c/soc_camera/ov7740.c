@@ -421,11 +421,16 @@ err:
 	return ret;
 }
 
-static int ov7740_g_fmt(struct v4l2_subdev *sd,
-			struct v4l2_mbus_framefmt *mf)
+static int ov7740_get_fmt(struct v4l2_subdev *sd,
+			  struct v4l2_subdev_pad_config *cfg,
+			  struct v4l2_subdev_format *format)
 {
+	struct v4l2_mbus_framefmt *mf = &format->format;
 	struct i2c_client  *client = v4l2_get_subdevdata(sd);
 	struct ov7740_priv *priv = to_ov7740(client);
+
+	if (format->pad)
+		return -EINVAL;
 
 	if (!priv->win) {
 		u32 width = W_VGA, height = H_VGA;
@@ -582,7 +587,6 @@ static int ov7740_g_mbus_config(struct v4l2_subdev *sd,
 
 static struct v4l2_subdev_video_ops ov7740_subdev_video_ops = {
 	.s_stream	= ov7740_s_stream,
-	.g_mbus_fmt	= ov7740_g_fmt,
 	.s_mbus_fmt	= ov7740_s_fmt,
 	.try_mbus_fmt	= ov7740_try_fmt,
 	.g_mbus_config	= ov7740_g_mbus_config,
@@ -590,6 +594,7 @@ static struct v4l2_subdev_video_ops ov7740_subdev_video_ops = {
 
 static const struct v4l2_subdev_pad_ops ov7740_subdev_pad_ops = {
 	.enum_mbus_code = ov7740_enum_mbus_code,
+	.get_fmt	= ov7740_get_fmt,
 };
 
 static struct v4l2_subdev_ops ov7740_subdev_ops = {
