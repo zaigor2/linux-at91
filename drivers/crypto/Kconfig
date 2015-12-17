@@ -380,6 +380,7 @@ config CRYPTO_DEV_ATMEL_AES
 	tristate "Support for Atmel AES hw accelerator"
 	depends on ARCH_AT91
 	select CRYPTO_AES
+	select CRYPTO_AEAD
 	select CRYPTO_BLKCIPHER
 	select AT_HDMAC
 	help
