@@ -44,13 +44,11 @@ enum atmel_hlcdc_connector_rgb_mode {
  * @connector: DRM connector
  * @encoder: DRM encoder
  * @dc: pointer to the atmel_hlcdc_dc structure
- * @dpms: current DPMS mode
  */
 struct atmel_hlcdc_rgb_output {
 	struct drm_connector connector;
 	struct drm_encoder encoder;
 	struct atmel_hlcdc_dc *dc;
-	int dpms;
 };
 
 static inline struct atmel_hlcdc_rgb_output *
@@ -248,7 +246,6 @@ static int atmel_hlcdc_create_panel_output(struct drm_device *dev,
 	if (!panel)
 		return -EINVAL;
 
-	panel->base.dpms = DRM_MODE_DPMS_OFF;
 
 	panel->base.dc = dc;
 
