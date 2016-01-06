@@ -142,11 +142,13 @@ static void atmel_hlcdc_crtc_mode_set_nofb(struct drm_crtc *c)
 			   cfg);
 }
 
-static bool atmel_hlcdc_crtc_mode_fixup(struct drm_crtc *crtc,
+static bool atmel_hlcdc_crtc_mode_fixup(struct drm_crtc *c,
 					const struct drm_display_mode *mode,
 					struct drm_display_mode *adjusted_mode)
 {
-	return true;
+	struct atmel_hlcdc_crtc *crtc = drm_crtc_to_atmel_hlcdc_crtc(c);
+
+	return atmel_hlcdc_dc_mode_valid(crtc->dc, adjusted_mode) == MODE_OK;
 }
 
 static void atmel_hlcdc_crtc_disable(struct drm_crtc *c)
@@ -311,11 +313,7 @@ static int atmel_hlcdc_crtc_select_output_mode(struct drm_crtc_state *state)
 static int atmel_hlcdc_crtc_atomic_check(struct drm_crtc *c,
 					 struct drm_crtc_state *s)
 {
-	struct atmel_hlcdc_crtc *crtc = drm_crtc_to_atmel_hlcdc_crtc(c);
 	int ret;
-
-	if (atmel_hlcdc_dc_mode_valid(crtc->dc, &s->adjusted_mode) != MODE_OK)
-		return -EINVAL;
 
 	ret = atmel_hlcdc_crtc_select_output_mode(s);
 	if (ret)
