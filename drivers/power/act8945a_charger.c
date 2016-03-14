@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  *
  */
+#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
@@ -75,7 +76,12 @@ static const char *act8945a_charger_manufacturer = "Active-semi";
 #define APCH_STATE_CSTATE_PRE		0x03
 
 struct act8945a_charger {
+	struct power_supply *psy;
 	struct regmap *regmap;
+	struct work_struct work;
+
+	bool init_done;
+	int irq_pin;
 };
 
 static int act8945a_get_charger_state(struct regmap *regmap, int *val)
@@ -252,6 +258,47 @@ static const struct power_supply_desc act8945a_charger_desc = {
 	.num_properties	= ARRAY_SIZE(act8945a_charger_props),
 };
 
+static int act8945a_enable_interrupt(struct act8945a_charger *charger)
+{
+	struct regmap *regmap = charger->regmap;
+	unsigned char ctrl;
+	int ret;
+
+	ctrl = APCH_CTRL_CHGEOCOUT | APCH_CTRL_CHGEOCIN |
+	       APCH_CTRL_INDIS | APCH_CTRL_INCON |
+	       APCH_CTRL_TEMPOUT | APCH_CTRL_TEMPIN |
+	       APCH_CTRL_TIMRPRE | APCH_CTRL_TIMRTOT;
+	ret = regmap_write(regmap, ACT8945A_APCH_CTRL, ctrl);
+	if (ret)
+		return ret;
+
+	ctrl = APCH_STATUS_CHGSTAT | APCH_STATUS_INSTAT |
+	       APCH_STATUS_TEMPSTAT | APCH_STATUS_TIMRSTAT;
+	ret = regmap_write(regmap, ACT8945A_APCH_STATUS, ctrl);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static void act8945a_work(struct work_struct *work)
+{
+	struct act8945a_charger *charger =
+			container_of(work, struct act8945a_charger, work);
+
+	power_supply_changed(charger->psy);
+}
+
+static irqreturn_t act8945a_status_changed(int irq, void *dev_id)
+{
+	struct act8945a_charger *charger = dev_id;
+
+	if (charger->init_done)
+		schedule_work(&charger->work);
+
+	return IRQ_HANDLED;
+}
+
 #define DEFAULT_TOTAL_TIME_OUT		3
 #define DEFAULT_PRE_TIME_OUT		40
 #define DEFAULT_INPUT_OVP_THRESHOLD	6600
@@ -267,6 +314,7 @@ static int act8945a_charger_config(struct device *dev,
 	u32 pre_time_out;
 	u32 input_voltage_threshold;
 	int chglev_pin;
+	int ret;
 
 	unsigned int tmp;
 	unsigned int value = 0;
@@ -282,6 +330,18 @@ static int act8945a_charger_config(struct device *dev,
 
 	if (tmp & APCH_CFG_SUSCHG)
 		value |= APCH_CFG_SUSCHG;
+	charger->irq_pin = of_get_named_gpio(np, "active-semi,irq_gpios", 0);
+	if (gpio_is_valid(charger->irq_pin)) {
+		if (!devm_gpio_request(dev, charger->irq_pin, "irq-pin")) {
+			ret = devm_request_irq(dev,
+					       gpio_to_irq(charger->irq_pin),
+					       act8945a_status_changed,
+					       IRQF_TRIGGER_FALLING,
+					       "irq-pin", charger);
+			if (ret)
+				dev_dbg(dev, "failed to request nIRQ pin IRQ\n");
+		}
+	}
 
 	chglev_pin = of_get_named_gpio_flags(np,
 				"active-semi,chglev-gpios", 0, &flags);
@@ -359,7 +419,6 @@ static int act8945a_charger_config(struct device *dev,
 static int act8945a_charger_probe(struct platform_device *pdev)
 {
 	struct act8945a_charger *charger;
-	struct power_supply *psy;
 	struct power_supply_config psy_cfg = {};
 	int ret;
 
@@ -380,13 +439,21 @@ static int act8945a_charger_probe(struct platform_device *pdev)
 	psy_cfg.of_node	= pdev->dev.parent->of_node;
 	psy_cfg.drv_data = charger;
 
-	psy = devm_power_supply_register(&pdev->dev,
-					 &act8945a_charger_desc,
-					 &psy_cfg);
-	if (IS_ERR(psy)) {
+	charger->psy = devm_power_supply_register(&pdev->dev,
+						  &act8945a_charger_desc,
+						  &psy_cfg);
+	if (IS_ERR(charger->psy)) {
 		dev_err(&pdev->dev, "failed to register power supply\n");
-		return PTR_ERR(psy);
+		return PTR_ERR(charger->psy);
 	}
+
+	INIT_WORK(&charger->work, act8945a_work);
+
+	ret = act8945a_enable_interrupt(charger);
+	if (ret)
+		return -EIO;
+
+	charger->init_done = true;
 
 	return 0;
 }
