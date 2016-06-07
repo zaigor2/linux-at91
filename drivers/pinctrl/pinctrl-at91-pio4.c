@@ -419,8 +419,8 @@ static int atmel_pctl_get_group_pins(struct pinctrl_dev *pctldev,
 	return 0;
 }
 
-struct atmel_group *atmel_pctl_find_group_by_pin(struct pinctrl_dev *pctldev,
-						 unsigned pin)
+static struct atmel_group *
+atmel_pctl_find_group_by_pin(struct pinctrl_dev *pctldev, unsigned pin)
 {
 	struct atmel_pioctrl *atmel_pioctrl = pinctrl_dev_get_drvdata(pctldev);
 	int i;
@@ -1071,7 +1071,7 @@ gpiochip_add_pin_range_error:
 	return ret;
 }
 
-int atmel_pinctrl_remove(struct platform_device *pdev)
+static int atmel_pinctrl_remove(struct platform_device *pdev)
 {
 	struct atmel_pioctrl *atmel_pioctrl = platform_get_drvdata(pdev);
 
