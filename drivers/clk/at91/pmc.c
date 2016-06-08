@@ -19,6 +19,7 @@
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqdomain.h>
 #include <linux/of_irq.h>
+#include <linux/mfd/syscon.h>
 
 #include <asm/proc-fns.h>
 
@@ -26,21 +27,6 @@
 
 void __iomem *at91_pmc_base;
 EXPORT_SYMBOL_GPL(at91_pmc_base);
-
-void at91rm9200_idle(void)
-{
-	/*
-	 * Disable the processor clock.  The processor will be automatically
-	 * re-enabled by an interrupt or by a reset.
-	 */
-	at91_pmc_write(AT91_PMC_SCDR, AT91_PMC_PCK);
-}
-
-void at91sam9_idle(void)
-{
-	at91_pmc_write(AT91_PMC_SCDR, AT91_PMC_PCK);
-	cpu_do_idle();
-}
 
 int of_at91_get_clk_range(struct device_node *np, const char *propname,
 			  struct clk_range *range)
@@ -223,6 +209,7 @@ static const struct at91_pmc_caps sama5d3_caps = {
 };
 
 static struct at91_pmc *__init at91_pmc_init(struct device_node *np,
+					     struct regmap *regmap,
 					     void __iomem *regbase, int virq,
 					     const struct at91_pmc_caps *caps)
 {
@@ -238,7 +225,7 @@ static struct at91_pmc *__init at91_pmc_init(struct device_node *np,
 		return NULL;
 
 	spin_lock_init(&pmc->lock);
-	pmc->regbase = regbase;
+	pmc->regmap = regmap;
 	pmc->virq = virq;
 	pmc->caps = caps;
 
@@ -394,16 +381,18 @@ static void __init of_at91_pmc_setup(struct device_node *np,
 	void (*clk_setup)(struct device_node *, struct at91_pmc *);
 	const struct of_device_id *clk_id;
 	void __iomem *regbase = of_iomap(np, 0);
+	struct regmap *regmap;
 	int virq;
 
-	if (!regbase)
-		return;
+	regmap = syscon_node_to_regmap(np);
+	if (IS_ERR(regmap))
+		panic("Could not retrieve syscon regmap");
 
 	virq = irq_of_parse_and_map(np, 0);
 	if (!virq)
 		return;
 
-	pmc = at91_pmc_init(np, regbase, virq, caps);
+	pmc = at91_pmc_init(np, regmap, regbase, virq, caps);
 	if (!pmc)
 		return;
 	for_each_child_of_node(np, childnp) {
