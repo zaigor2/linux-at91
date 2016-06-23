@@ -41,24 +41,35 @@
 #define SPINOR_OP_WRSR		0x01	/* Write status register 1 byte */
 #define SPINOR_OP_READ		0x03	/* Read data bytes (low frequency) */
 #define SPINOR_OP_READ_FAST	0x0b	/* Read data bytes (high frequency) */
-#define SPINOR_OP_READ_1_1_2	0x3b	/* Read data bytes (Dual SPI) */
-#define SPINOR_OP_READ_1_1_4	0x6b	/* Read data bytes (Quad SPI) */
+#define SPINOR_OP_READ_1_1_2	0x3b	/* Read data bytes (Dual Output SPI) */
+#define SPINOR_OP_READ_1_2_2	0xbb	/* Read data bytes (Dual I/O SPI) */
+#define SPINOR_OP_READ_1_1_4	0x6b	/* Read data bytes (Quad Output SPI) */
+#define SPINOR_OP_READ_1_4_4	0xeb	/* Read data bytes (Quad I/O SPI) */
 #define SPINOR_OP_PP		0x02	/* Page program (up to 256 bytes) */
+#define SPINOR_OP_PP_1_1_4	0x32	/* Quad page program */
+#define SPINOR_OP_PP_1_4_4	0x38	/* Quad page program */
 #define SPINOR_OP_BE_4K		0x20	/* Erase 4KiB block */
 #define SPINOR_OP_BE_4K_PMC	0xd7	/* Erase 4KiB block on PMC chips */
 #define SPINOR_OP_BE_32K	0x52	/* Erase 32KiB block */
 #define SPINOR_OP_CHIP_ERASE	0xc7	/* Erase whole flash chip */
 #define SPINOR_OP_SE		0xd8	/* Sector erase (usually 64KiB) */
 #define SPINOR_OP_RDID		0x9f	/* Read JEDEC ID */
+#define SPINOR_OP_RDSFDP	0x5a	/* Read SFDP */
 #define SPINOR_OP_RDCR		0x35	/* Read configuration register */
 #define SPINOR_OP_RDFSR		0x70	/* Read flag status register */
 
 /* 4-byte address opcodes - used on Spansion and some Macronix flashes. */
-#define SPINOR_OP_READ4		0x13	/* Read data bytes (low frequency) */
-#define SPINOR_OP_READ4_FAST	0x0c	/* Read data bytes (high frequency) */
-#define SPINOR_OP_READ4_1_1_2	0x3c	/* Read data bytes (Dual SPI) */
-#define SPINOR_OP_READ4_1_1_4	0x6c	/* Read data bytes (Quad SPI) */
+#define SPINOR_OP_READ_4B	0x13	/* Read data bytes (low frequency) */
+#define SPINOR_OP_READ_FAST_4B	0x0c	/* Read data bytes (high frequency) */
+#define SPINOR_OP_READ_1_1_2_4B	0x3c	/* Read data bytes (Dual Output SPI) */
+#define SPINOR_OP_READ_1_2_2_4B	0xbc	/* Read data bytes (Dual I/O SPI) */
+#define SPINOR_OP_READ_1_1_4_4B	0x6c	/* Read data bytes (Quad Output SPI) */
+#define SPINOR_OP_READ_1_4_4_4B	0xec	/* Read data bytes (Quad I/O SPI) */
 #define SPINOR_OP_PP_4B		0x12	/* Page program (up to 256 bytes) */
+#define SPINOR_OP_PP_1_1_4_4B	0x34	/* Quad page program */
+#define SPINOR_OP_PP_1_4_4_4B	0x3e	/* Quad page program */
+#define SPINOR_OP_BE_4K_4B	0x21	/* Erase 4KiB block */
+#define SPINOR_OP_BE_32K_4B	0x5c	/* Erase 32KiB block */
 #define SPINOR_OP_SE_4B		0xdc	/* Sector erase (usually 64KiB) */
 
 /* Used for SST flashes only. */
@@ -97,11 +108,124 @@
 /* Configuration Register bits. */
 #define CR_QUAD_EN_SPAN		BIT(1)	/* Spansion Quad I/O */
 
-enum read_mode {
-	SPI_NOR_NORMAL = 0,
-	SPI_NOR_FAST,
-	SPI_NOR_DUAL,
-	SPI_NOR_QUAD,
+
+/* Supported SPI protocols */
+enum spi_nor_protocol_class {
+	SNOR_PCLASS_1_1_N,
+	SNOR_PCLASS_1_N_N,
+	SNOR_PCLASS_N_N_N,
+
+	SNOR_PCLASS_MAX
+};
+
+enum spi_nor_protocol_width {
+	SNOR_PWIDTH_1,
+	SNOR_PWIDTH_2,
+	SNOR_PWIDTH_4,
+	SNOR_PWIDTH_8,
+};
+
+/* The encoding is chosen so the higher index the higher priority */
+#define SNOR_PINDEX(pwidth, pclass) \
+	((pwidth) * SNOR_PCLASS_MAX + (pclass))
+enum spi_nor_protocol_index {
+	SNOR_PINDEX_SLOW  = SNOR_PINDEX(SNOR_PWIDTH_1, SNOR_PCLASS_1_1_N),
+	/* Little trick to make the difference between Read and Fast Read commands. */
+	SNOR_PINDEX_1_1_1 = SNOR_PINDEX(SNOR_PWIDTH_1, SNOR_PCLASS_1_N_N),
+	SNOR_PINDEX_1_1_2 = SNOR_PINDEX(SNOR_PWIDTH_2, SNOR_PCLASS_1_1_N),
+	SNOR_PINDEX_1_2_2 = SNOR_PINDEX(SNOR_PWIDTH_2, SNOR_PCLASS_1_N_N),
+	SNOR_PINDEX_2_2_2 = SNOR_PINDEX(SNOR_PWIDTH_2, SNOR_PCLASS_N_N_N),
+	SNOR_PINDEX_1_1_4 = SNOR_PINDEX(SNOR_PWIDTH_4, SNOR_PCLASS_1_1_N),
+	SNOR_PINDEX_1_4_4 = SNOR_PINDEX(SNOR_PWIDTH_4, SNOR_PCLASS_1_N_N),
+	SNOR_PINDEX_4_4_4 = SNOR_PINDEX(SNOR_PWIDTH_4, SNOR_PCLASS_N_N_N),
+
+	SNOR_PINDEX_MAX
+};
+
+#define SNOR_MODE_SLOW		BIT(SNOR_PINDEX_SLOW)
+#define SNOR_MODE_1_1_1		BIT(SNOR_PINDEX_1_1_1)
+#define SNOR_MODE_1_1_2		BIT(SNOR_PINDEX_1_1_2)
+#define SNOR_MODE_1_2_2		BIT(SNOR_PINDEX_1_2_2)
+#define SNOR_MODE_2_2_2		BIT(SNOR_PINDEX_2_2_2)
+#define SNOR_MODE_1_1_4		BIT(SNOR_PINDEX_1_1_4)
+#define SNOR_MODE_1_4_4		BIT(SNOR_PINDEX_1_4_4)
+#define SNOR_MODE_4_4_4		BIT(SNOR_PINDEX_4_4_4)
+
+struct spi_nor_modes {
+	u32	rd_modes;	/* supported SPI modes for (Fast) Read */
+	u32	wr_modes;	/* supported SPI modes for Page Program */
+};
+
+
+struct spi_nor_read {
+	u8	num_wait_states:5;
+	u8	num_mode_clocks:3;
+	u8	opcode;
+};
+
+struct spi_nor_erase_type {
+	u8	size;	/* specifies 'N' so erase size = 2^N */
+	u8	opcode;
+};
+
+#define SNOR_ERASE_64K		0x10
+#define SNOR_ERASE_32K		0x0f
+#define SNOR_ERASE_4K		0x0c
+
+struct spi_nor;
+
+#define SNOR_MAX_ERASE_TYPES	4
+
+struct spi_nor_basic_flash_parameter {
+	/* Fast Read settings */
+	u32				rd_modes;
+	struct spi_nor_read		reads[SNOR_PINDEX_MAX];
+
+	/* Page Program settings */
+	u32				wr_modes;
+	u8				page_programs[SNOR_PINDEX_MAX];
+
+	/* Sector Erase settings */
+	struct spi_nor_erase_type	erase_types[SNOR_MAX_ERASE_TYPES];
+
+	int (*enable_quad_io)(struct spi_nor *nor);
+};
+
+
+#define SNOR_PROTO_CODE_OFF	8
+#define SNOR_PROTO_CODE_MASK	GENMASK(11, 8)
+#define SNOR_PROTO_CODE_TO_PROTO(code) \
+	(((code) << SNOR_PROTO_CODE_OFF) & SNOR_PROTO_CODE_MASK)
+#define SNOR_PROTO_CODE_FROM_PROTO(proto) \
+	((((u32)(proto)) & SNOR_PROTO_CODE_MASK) >> SNOR_PROTO_CODE_OFF)
+
+#define SNOR_PROTO_ADDR_OFF	4
+#define SNOR_PROTO_ADDR_MASK	GENMASK(7, 4)
+#define SNOR_PROTO_ADDR_TO_PROTO(addr) \
+	(((addr) << SNOR_PROTO_ADDR_OFF) & SNOR_PROTO_ADDR_MASK)
+#define SNOR_PROTO_ADDR_FROM_PROTO(proto) \
+	((((u32)(proto)) & SNOR_PROTO_ADDR_MASK) >> SNOR_PROTO_ADDR_OFF)
+
+#define SNOR_PROTO_DATA_OFF	0
+#define SNOR_PROTO_DATA_MASK	GENMASK(3, 0)
+#define SNOR_PROTO_DATA_TO_PROTO(data) \
+	(((data) << SNOR_PROTO_DATA_OFF) & SNOR_PROTO_DATA_MASK)
+#define SNOR_PROTO_DATA_FROM_PROTO(proto) \
+	((((u32)(proto)) & SNOR_PROTO_DATA_MASK) >> SNOR_PROTO_DATA_OFF)
+
+#define SNOR_PROTO(code, addr, data)	  \
+	(SNOR_PROTO_CODE_TO_PROTO(code) |   \
+	 SNOR_PROTO_ADDR_TO_PROTO(addr) | \
+	 SNOR_PROTO_DATA_TO_PROTO(data))
+
+enum spi_nor_protocol {
+	SNOR_PROTO_1_1_1 = SNOR_PROTO(1, 1, 1),	/* SPI */
+	SNOR_PROTO_1_1_2 = SNOR_PROTO(1, 1, 2),	/* Dual Output */
+	SNOR_PROTO_1_1_4 = SNOR_PROTO(1, 1, 4),	/* Quad Output */
+	SNOR_PROTO_1_2_2 = SNOR_PROTO(1, 2, 2),	/* Dual IO */
+	SNOR_PROTO_1_4_4 = SNOR_PROTO(1, 4, 4),	/* Quad IO */
+	SNOR_PROTO_2_2_2 = SNOR_PROTO(2, 2, 2),	/* Dual Command */
+	SNOR_PROTO_4_4_4 = SNOR_PROTO(4, 4, 4),	/* Quad Command */
 };
 
 #define SPI_NOR_MAX_CMD_SIZE	8
@@ -131,9 +255,11 @@ struct mtd_info;
  * @read_opcode:	the read opcode
  * @read_dummy:		the dummy needed by the read operation
  * @program_opcode:	the program opcode
- * @flash_read:		the mode of the read
  * @sst_write_second:	used by the SST write operation
  * @flags:		flag options for the current SPI-NOR (SNOR_F_*)
+ * @read_proto:		the SPI protocol used by read operations
+ * @write_proto:	the SPI protocol used by write operations
+ * @reg_proto		the SPI protocol used by read_reg/write_reg operations
  * @cmd_buf:		used by the write_reg
  * @prepare:		[OPTIONAL] do some preparations for the
  *			read/write/erase/lock/unlock operations
@@ -162,7 +288,9 @@ struct spi_nor {
 	u8			read_opcode;
 	u8			read_dummy;
 	u8			program_opcode;
-	enum read_mode		flash_read;
+	enum spi_nor_protocol	read_proto;
+	enum spi_nor_protocol	write_proto;
+	enum spi_nor_protocol	reg_proto;
 	bool			sst_write_second;
 	u32			flags;
 	u8			cmd_buf[SPI_NOR_MAX_CMD_SIZE];
@@ -189,7 +317,7 @@ struct spi_nor {
  * spi_nor_scan() - scan the SPI NOR
  * @nor:	the spi_nor structure
  * @name:	the chip type name
- * @mode:	the read mode supported by the driver
+ * @modes:	the SPI modes supported by the controller driver
  *
  * The drivers can use this fuction to scan the SPI NOR.
  * In the scanning, it will try to get all the necessary information to
@@ -199,6 +327,7 @@ struct spi_nor {
  *
  * Return: 0 for success, others for failure.
  */
-int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode);
+int spi_nor_scan(struct spi_nor *nor, const char *name,
+		 const struct spi_nor_modes *modes);
 
 #endif

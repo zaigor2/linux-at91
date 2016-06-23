@@ -237,13 +237,12 @@ static int nxp_spifi_erase(struct spi_nor *nor, loff_t offs)
 
 static int nxp_spifi_setup_memory_cmd(struct nxp_spifi *spifi)
 {
-	switch (spifi->nor.flash_read) {
-	case SPI_NOR_NORMAL:
-	case SPI_NOR_FAST:
+	switch (SNOR_PROTO_DATA_FROM_PROTO(spifi->nor.read_proto)) {
+	case 1:
 		spifi->mcmd = SPIFI_CMD_FIELDFORM_ALL_SERIAL;
 		break;
-	case SPI_NOR_DUAL:
-	case SPI_NOR_QUAD:
+	case 2:
+	case 4:
 		spifi->mcmd = SPIFI_CMD_FIELDFORM_QUAD_DUAL_DATA;
 		break;
 	default:
@@ -272,7 +271,10 @@ static int nxp_spifi_setup_flash(struct nxp_spifi *spifi,
 				 struct device_node *np)
 {
 	struct mtd_part_parser_data ppdata;
-	enum read_mode flash_read;
+	struct spi_nor_modes modes = {
+		.rd_modes = (SNOR_MODE_SLOW | SNOR_MODE_1_1_1),
+		.wr_modes = SNOR_MODE_1_1_1,
+	};
 	u32 ctrl, property;
 	u16 mode = 0;
 	int ret;
@@ -306,13 +308,12 @@ static int nxp_spifi_setup_flash(struct nxp_spifi *spifi,
 
 	if (mode & SPI_RX_DUAL) {
 		ctrl |= SPIFI_CTRL_DUAL;
-		flash_read = SPI_NOR_DUAL;
+		modes.rd_modes |= SNOR_MODE_1_1_2;
 	} else if (mode & SPI_RX_QUAD) {
 		ctrl &= ~SPIFI_CTRL_DUAL;
-		flash_read = SPI_NOR_QUAD;
+		modes.rd_modes |= SNOR_MODE_1_1_4;
 	} else {
 		ctrl |= SPIFI_CTRL_DUAL;
-		flash_read = SPI_NOR_NORMAL;
 	}
 
 	switch (mode & (SPI_CPHA | SPI_CPOL)) {
@@ -349,7 +350,7 @@ static int nxp_spifi_setup_flash(struct nxp_spifi *spifi,
 	 */
 	nxp_spifi_dummy_id_read(&spifi->nor);
 
-	ret = spi_nor_scan(&spifi->nor, NULL, flash_read);
+	ret = spi_nor_scan(&spifi->nor, NULL, &modes);
 	if (ret) {
 		dev_err(spifi->dev, "device scan failed\n");
 		return ret;
