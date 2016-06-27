@@ -86,6 +86,14 @@ void of_sama5d3_clk_pll_setup(struct device_node *np,
 			      struct at91_pmc *pmc);
 void of_at91sam9x5_clk_plldiv_setup(struct device_node *np,
 				    struct at91_pmc *pmc);
+#if defined(CONFIG_HAVE_AT91_AUDIO_PLL)
+void of_sama5d2_clk_audio_pll_setup(struct device_node *np,
+				    struct at91_pmc *pmc);
+void of_sama5d2_clk_audio_pll_pmc_setup(struct device_node *np,
+					struct at91_pmc *pmc);
+void of_sama5d2_clk_audio_pll_pad_setup(struct device_node *np,
+					struct at91_pmc *pmc);
+#endif
 
 void of_at91rm9200_clk_master_setup(struct device_node *np,
 				    struct at91_pmc *pmc);
