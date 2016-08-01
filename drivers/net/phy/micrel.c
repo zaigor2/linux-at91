@@ -580,6 +580,23 @@ ksz9021_wr_mmd_phyreg(struct phy_device *phydev, int ptrad, int devnum,
 {
 }
 
+int kszphy_suspend(struct phy_device *phydev)
+{
+	int value;
+
+	mutex_lock(&phydev->lock);
+
+	/* disable interrupts */
+	phy_write(phydev, MII_KSZPHY_INTCS, 0x0);
+
+	value = phy_read(phydev, MII_BMCR);
+	phy_write(phydev, MII_BMCR, value | BMCR_PDOWN);
+
+	mutex_unlock(&phydev->lock);
+
+	return 0;
+}
+
 static int kszphy_resume(struct phy_device *phydev)
 {
 	int value;
@@ -785,7 +802,7 @@ static struct phy_driver ksphy_driver[] = {
 	.read_status	= genphy_read_status,
 	.ack_interrupt	= kszphy_ack_interrupt,
 	.config_intr	= kszphy_config_intr,
-	.suspend	= genphy_suspend,
+	.suspend	= kszphy_suspend,
 	.resume		= kszphy_resume,
 	.driver		= { .owner = THIS_MODULE,},
 }, {
