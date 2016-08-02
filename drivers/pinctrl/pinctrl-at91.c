@@ -9,7 +9,6 @@
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/init.h>
-#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_address.h>
@@ -1664,7 +1663,7 @@ static int at91_gpio_of_irq_setup(struct platform_device *pdev,
 }
 
 /* This structure is replicated for each GPIO block allocated at probe time */
-static struct gpio_chip at91_gpio_template = {
+static const struct gpio_chip at91_gpio_template = {
 	.request		= gpiochip_generic_request,
 	.free			= gpiochip_generic_free,
 	.get_direction		= at91_gpio_get_direction,
@@ -1734,14 +1733,9 @@ static int at91_gpio_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	ret = clk_prepare(at91_chip->clock);
-	if (ret)
-		goto clk_prepare_err;
-
-	/* enable PIO controller's clock */
-	ret = clk_enable(at91_chip->clock);
+	ret = clk_prepare_enable(at91_chip->clock);
 	if (ret) {
-		dev_err(&pdev->dev, "failed to enable clock, ignoring.\n");
+		dev_err(&pdev->dev, "failed to prepare and enable clock, ignoring.\n");
 		goto clk_enable_err;
 	}
 
@@ -1750,7 +1744,7 @@ static int at91_gpio_probe(struct platform_device *pdev)
 	chip = &at91_chip->chip;
 	chip->of_node = np;
 	chip->label = dev_name(&pdev->dev);
-	chip->dev = &pdev->dev;
+	chip->parent = &pdev->dev;
 	chip->owner = THIS_MODULE;
 	chip->base = alias_idx * MAX_NB_GPIO_PER_BANK;
 
@@ -1801,10 +1795,8 @@ static int at91_gpio_probe(struct platform_device *pdev)
 irq_setup_err:
 	gpiochip_remove(chip);
 gpiochip_add_err:
-	clk_disable(at91_chip->clock);
 clk_enable_err:
-	clk_unprepare(at91_chip->clock);
-clk_prepare_err:
+	clk_disable_unprepare(at91_chip->clock);
 err:
 	dev_err(&pdev->dev, "Failure %i for GPIO %i\n", ret, alias_idx);
 
@@ -1828,23 +1820,13 @@ static struct platform_driver at91_pinctrl_driver = {
 	.remove = at91_pinctrl_remove,
 };
 
+static struct platform_driver * const drivers[] = {
+	&at91_gpio_driver,
+	&at91_pinctrl_driver,
+};
+
 static int __init at91_pinctrl_init(void)
 {
-	int ret;
-
-	ret = platform_driver_register(&at91_gpio_driver);
-	if (ret)
-		return ret;
-	return platform_driver_register(&at91_pinctrl_driver);
+	return platform_register_drivers(drivers, ARRAY_SIZE(drivers));
 }
 arch_initcall(at91_pinctrl_init);
-
-static void __exit at91_pinctrl_exit(void)
-{
-	platform_driver_unregister(&at91_pinctrl_driver);
-}
-
-module_exit(at91_pinctrl_exit);
-MODULE_AUTHOR("Jean-Christophe PLAGNIOL-VILLARD <plagnioj@jcrosoft.com>");
-MODULE_DESCRIPTION("Atmel AT91 pinctrl driver");
-MODULE_LICENSE("GPL v2");

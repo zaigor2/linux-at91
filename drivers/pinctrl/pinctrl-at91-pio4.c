@@ -18,7 +18,7 @@
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pinctrl/pinconf.h>
@@ -290,7 +290,7 @@ static void atmel_gpio_irq_handler(struct irq_desc *desc)
 
 static int atmel_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
-	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->dev);
+	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->parent);
 	struct atmel_pin *pin = atmel_pioctrl->pins[offset];
 	unsigned reg;
 
@@ -305,7 +305,7 @@ static int atmel_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 
 static int atmel_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
-	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->dev);
+	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->parent);
 	struct atmel_pin *pin = atmel_pioctrl->pins[offset];
 	unsigned reg;
 
@@ -317,7 +317,7 @@ static int atmel_gpio_get(struct gpio_chip *chip, unsigned offset)
 static int atmel_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 				       int value)
 {
-	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->dev);
+	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->parent);
 	struct atmel_pin *pin = atmel_pioctrl->pins[offset];
 	unsigned reg;
 
@@ -336,7 +336,7 @@ static int atmel_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 
 static void atmel_gpio_set(struct gpio_chip *chip, unsigned offset, int val)
 {
-	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->dev);
+	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->parent);
 	struct atmel_pin *pin = atmel_pioctrl->pins[offset];
 
 	atmel_gpio_write(atmel_pioctrl, pin->bank,
@@ -346,7 +346,7 @@ static void atmel_gpio_set(struct gpio_chip *chip, unsigned offset, int val)
 
 static int atmel_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
 {
-	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->dev);
+	struct atmel_pioctrl *atmel_pioctrl = dev_get_drvdata(chip->parent);
 
 	return irq_find_mapping(atmel_pioctrl->irq_domain, offset);
 }
@@ -419,8 +419,8 @@ static int atmel_pctl_get_group_pins(struct pinctrl_dev *pctldev,
 	return 0;
 }
 
-struct atmel_group *atmel_pctl_find_group_by_pin(struct pinctrl_dev *pctldev,
-						 unsigned pin)
+static struct atmel_group *
+atmel_pctl_find_group_by_pin(struct pinctrl_dev *pctldev, unsigned pin)
 {
 	struct atmel_pioctrl *atmel_pioctrl = pinctrl_dev_get_drvdata(pctldev);
 	int i;
@@ -500,7 +500,8 @@ static int atmel_pctl_dt_subnode_to_map(struct pinctrl_dev *pctldev,
 	if (!num_pins) {
 		dev_err(pctldev->dev, "no pins found in node %s\n",
 			of_node_full_name(np));
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exit;
 	}
 
 	/*
@@ -514,19 +515,19 @@ static int atmel_pctl_dt_subnode_to_map(struct pinctrl_dev *pctldev,
 	ret = pinctrl_utils_reserve_map(pctldev, map, reserved_maps, num_maps,
 					reserve);
 	if (ret < 0)
-		return ret;
+		goto exit;
 
 	for (i = 0; i < num_pins; i++) {
 		const char *group, *func;
 
 		ret = of_property_read_u32_index(np, "pinmux", i, &pinfunc);
 		if (ret)
-			return ret;
+			goto exit;
 
 		ret = atmel_pctl_xlate_pinfunc(pctldev, np, pinfunc, &group,
 					       &func);
 		if (ret)
-			return ret;
+			goto exit;
 
 		pinctrl_utils_add_map_mux(pctldev, map, reserved_maps, num_maps,
 					  group, func);
@@ -537,11 +538,13 @@ static int atmel_pctl_dt_subnode_to_map(struct pinctrl_dev *pctldev,
 					configs, num_configs,
 					PIN_MAP_TYPE_CONFIGS_GROUP);
 			if (ret < 0)
-				return ret;
+				goto exit;
 		}
 	}
 
-	return 0;
+exit:
+	kfree(configs);
+	return ret;
 }
 
 static int atmel_pctl_dt_node_to_map(struct pinctrl_dev *pctldev,
@@ -821,7 +824,7 @@ static struct pinctrl_desc atmel_pinctrl_desc = {
 	.pmxops		= &atmel_pmxops,
 };
 
-static int atmel_pctrl_suspend(struct device *dev)
+static int __maybe_unused atmel_pctrl_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct atmel_pioctrl *atmel_pioctrl = platform_get_drvdata(pdev);
@@ -841,7 +844,7 @@ static int atmel_pctrl_suspend(struct device *dev)
 	return 0;
 }
 
-static int atmel_pctrl_resume(struct device *dev)
+static int __maybe_unused atmel_pctrl_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct atmel_pioctrl *atmel_pioctrl = platform_get_drvdata(pdev);
@@ -874,7 +877,6 @@ static const struct of_device_id atmel_pctrl_of_match[] = {
 		/* sentinel */
 	}
 };
-MODULE_DEVICE_TABLE(of, atmel_pctrl_of_match);
 
 static int atmel_pinctrl_probe(struct platform_device *pdev)
 {
@@ -971,7 +973,7 @@ static int atmel_pinctrl_probe(struct platform_device *pdev)
 	atmel_pioctrl->gpio_chip->of_node = dev->of_node;
 	atmel_pioctrl->gpio_chip->ngpio = atmel_pioctrl->npins;
 	atmel_pioctrl->gpio_chip->label = dev_name(dev);
-	atmel_pioctrl->gpio_chip->dev = dev;
+	atmel_pioctrl->gpio_chip->parent = dev;
 	atmel_pioctrl->gpio_chip->names = atmel_pioctrl->group_names;
 
 	atmel_pioctrl->pm_wakeup_sources = devm_kzalloc(dev,
@@ -1002,7 +1004,7 @@ static int atmel_pinctrl_probe(struct platform_device *pdev)
 		atmel_pioctrl->irqs[i] = res->start;
 		irq_set_chained_handler(res->start, atmel_gpio_irq_handler);
 		irq_set_handler_data(res->start, atmel_pioctrl);
-		dev_dbg(dev, "bank %i: hwirq=%u\n", i, res->start);
+		dev_dbg(dev, "bank %i: irq=%pr\n", i, res);
 	}
 
 	atmel_pioctrl->irq_domain = irq_domain_add_linear(dev->of_node,
@@ -1068,29 +1070,13 @@ gpiochip_add_pin_range_error:
 	return ret;
 }
 
-int atmel_pinctrl_remove(struct platform_device *pdev)
-{
-	struct atmel_pioctrl *atmel_pioctrl = platform_get_drvdata(pdev);
-
-	irq_domain_remove(atmel_pioctrl->irq_domain);
-	clk_disable_unprepare(atmel_pioctrl->clk);
-	pinctrl_unregister(atmel_pioctrl->pinctrl_dev);
-	gpiochip_remove(atmel_pioctrl->gpio_chip);
-
-	return 0;
-}
-
 static struct platform_driver atmel_pinctrl_driver = {
 	.driver = {
 		.name = "pinctrl-at91-pio4",
 		.of_match_table = atmel_pctrl_of_match,
 		.pm = &atmel_pctrl_pm_ops,
+		.suppress_bind_attrs = true,
 	},
 	.probe = atmel_pinctrl_probe,
-	.remove = atmel_pinctrl_remove,
 };
-module_platform_driver(atmel_pinctrl_driver);
-
-MODULE_AUTHOR(Ludovic Desroches <ludovic.desroches@atmel.com>);
-MODULE_DESCRIPTION("Atmel PIO4 pinctrl driver");
-MODULE_LICENSE("GPL v2");
+builtin_platform_driver(atmel_pinctrl_driver);
