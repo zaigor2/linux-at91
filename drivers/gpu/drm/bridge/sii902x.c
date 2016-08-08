@@ -111,6 +111,12 @@ static void sii902x_reset(struct sii902x *sii902x)
 	gpiod_set_value(sii902x->reset_gpio, 0);
 }
 
+static void sii902x_connector_destroy(struct drm_connector *connector)
+{
+	drm_connector_unregister(connector);
+	drm_connector_cleanup(connector);
+}
+
 static enum drm_connector_status
 sii902x_connector_detect(struct drm_connector *connector, bool force)
 {
@@ -127,7 +133,7 @@ static const struct drm_connector_funcs sii902x_connector_funcs = {
 	.dpms = drm_atomic_helper_connector_dpms,
 	.detect = sii902x_connector_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
-	.destroy = drm_connector_cleanup,
+	.destroy = sii902x_connector_destroy,
 	.reset = drm_atomic_helper_connector_reset,
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
@@ -217,9 +223,17 @@ static enum drm_mode_status sii902x_mode_valid(struct drm_connector *connector,
 	return MODE_OK;
 }
 
+static struct drm_encoder *sii902x_best_encoder(struct drm_connector *connector)
+{
+	struct sii902x *sii902x = connector_to_sii902x(connector);
+
+	return sii902x->bridge.encoder;
+}
+
 static const struct drm_connector_helper_funcs sii902x_connector_helper_funcs = {
 	.get_modes = sii902x_get_modes,
 	.mode_valid = sii902x_mode_valid,
+	.best_encoder = sii902x_best_encoder,
 };
 
 static void sii902x_bridge_disable(struct drm_bridge *bridge)
@@ -318,10 +332,16 @@ static int sii902x_bridge_attach(struct drm_bridge *bridge)
 	return 0;
 }
 
+static void sii902x_bridge_nop(struct drm_bridge *bridge)
+{
+}
+
 static const struct drm_bridge_funcs sii902x_bridge_funcs = {
 	.attach = sii902x_bridge_attach,
 	.mode_set = sii902x_bridge_mode_set,
 	.disable = sii902x_bridge_disable,
+	.post_disable = sii902x_bridge_nop,
+	.pre_enable = sii902x_bridge_nop,
 	.enable = sii902x_bridge_enable,
 };
 
