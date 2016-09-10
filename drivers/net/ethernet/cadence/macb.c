@@ -1347,7 +1347,7 @@ static inline int macb_clear_csum(struct sk_buff *skb)
 	 * This is required - at least for Zynq, which otherwise calculates
 	 * wrong UDP header checksums for UDP packets with UDP data len <=2
 	 */
-	*(__sum16 *)(skb_checksum_start(skb) + skb->csum_offset) = 0;
+	*(__sum16 *)(skb->head + skb->csum_start + skb->csum_offset) = 0;
 	return 0;
 }
 
@@ -1392,7 +1392,7 @@ static int macb_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (macb_clear_csum(skb)) {
 		dev_kfree_skb_any(skb);
-		return NETDEV_TX_OK;
+		goto unlock;
 	}
 
 	/* Map socket buffer for DMA transfer */
