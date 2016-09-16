@@ -42,8 +42,6 @@
 #include "host_interface.h"
 #include "wilc_wlan.h"
 #include <linux/wireless.h>
-#include <linux/completion.h>
-#include <linux/mutex.h>
 
 #define FLOW_CONTROL_LOWER_THRESHOLD	128
 #define FLOW_CONTROL_UPPER_THRESHOLD	256
@@ -131,7 +129,7 @@ struct wilc_priv {
 	struct wilc_wfi_key *wilc_gtk[MAX_NUM_STA];
 	struct wilc_wfi_key *wilc_ptk[MAX_NUM_STA];
 	u8 wilc_groupkey;
-	/* mutexes */
+	/* semaphores */
 	struct mutex scan_req_lock;
 	/*  */
 	bool gbAutoRateAdjusted;
@@ -172,15 +170,15 @@ struct wilc {
 	struct wilc_vif *vif[NUM_CONCURRENT_IFC];
 	u8 open_ifcs;
 
-	struct mutex txq_add_to_head_cs;
+	struct semaphore txq_add_to_head_cs;
 	spinlock_t txq_spinlock;
 
 	struct mutex rxq_cs;
 	struct mutex hif_cs;
 
-	struct completion cfg_event;
-	struct completion sync_event;
-	struct completion txq_event;
+	struct semaphore cfg_event;
+	struct semaphore sync_event;
+	struct semaphore txq_event;
 	struct completion txq_thread_started;
 
 	struct task_struct *txq_thread;

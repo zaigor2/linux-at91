@@ -20,7 +20,8 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
-#include <linux/mutex.h>
+
+#include <linux/semaphore.h>
 #include <linux/completion.h>
 
 static int dev_state_ev_handler(struct notifier_block *this,
@@ -29,6 +30,8 @@ static int dev_state_ev_handler(struct notifier_block *this,
 static struct notifier_block g_dev_notifier = {
 	.notifier_call = dev_state_ev_handler
 };
+
+static struct semaphore close_exit_sync;
 
 static int wlan_deinit_locks(struct net_device *dev);
 static void wlan_deinitialize_threads(struct net_device *dev);
@@ -238,7 +241,7 @@ void wilc_mac_indicate(struct wilc *wilc, int flag)
 				      (unsigned char *)&status, 4);
 		if (wilc->mac_status == WILC_MAC_STATUS_INIT) {
 			wilc->mac_status = status;
-			complete(&wilc->sync_event);
+			up(&wilc->sync_event);
 		} else {
 			wilc->mac_status = status;
 		}
@@ -313,7 +316,7 @@ static int linux_wlan_txq_task(void *vp)
 
 	complete(&wl->txq_thread_started);
 	while (1) {
-		wait_for_completion(&wl->txq_event);
+		down(&wl->txq_event);
 
 		if (wl->close) {
 			complete(&wl->txq_thread_started);
@@ -383,9 +386,9 @@ static int linux_wlan_start_firmware(struct net_device *dev)
 	if (ret < 0)
 		return ret;
 
-	if (!wait_for_completion_timeout(&wilc->sync_event,
-					msecs_to_jiffies(5000)))
-		return -ETIME;
+	ret = wilc_lock_timeout(wilc, &wilc->sync_event, 5000);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -647,7 +650,7 @@ void wilc1000_wlan_deinit(struct net_device *dev)
 			mutex_unlock(&wl->hif_cs);
 		}
 		if (&wl->txq_event)
-			complete(&wl->txq_event);
+			up(&wl->txq_event);
 
 		wlan_deinitialize_threads(dev);
 		deinit_irq(dev);
@@ -676,12 +679,12 @@ static int wlan_init_locks(struct net_device *dev)
 	mutex_init(&wl->rxq_cs);
 
 	spin_lock_init(&wl->txq_spinlock);
-	mutex_init(&wl->txq_add_to_head_cs);
+	sema_init(&wl->txq_add_to_head_cs, 1);
 
-	init_completion(&wl->txq_event);
+	sema_init(&wl->txq_event, 0);
 
-	init_completion(&wl->cfg_event);
-	init_completion(&wl->sync_event);
+	sema_init(&wl->cfg_event, 0);
+	sema_init(&wl->sync_event, 0);
 	init_completion(&wl->txq_thread_started);
 
 	return 0;
@@ -714,10 +717,10 @@ static int wlan_initialize_threads(struct net_device *dev)
 
 	wilc->txq_thread = kthread_run(linux_wlan_txq_task, (void *)dev,
 				     "K_TXQ_TASK");
-	if (IS_ERR(wilc->txq_thread)) {
+	if (!wilc->txq_thread) {
 		netdev_err(dev, "couldn't create TXQ thread\n");
 		wilc->close = 0;
-		return PTR_ERR(wilc->txq_thread);
+		return -ENOBUFS;
 	}
 	wait_for_completion(&wilc->txq_thread_started);
 
@@ -735,7 +738,7 @@ static void wlan_deinitialize_threads(struct net_device *dev)
 	wl->close = 1;
 
 	if (&wl->txq_event)
-		complete(&wl->txq_event);
+		up(&wl->txq_event);
 
 	if (wl->txq_thread) {
 		kthread_stop(wl->txq_thread);
@@ -1085,6 +1088,7 @@ int wilc_mac_close(struct net_device *ndev)
 		WILC_WFI_deinit_mon_interface();
 	}
 
+	up(&close_exit_sync);
 	vif->mac_opened = 0;
 
 	return 0;
@@ -1228,6 +1232,8 @@ void wilc_netdev_cleanup(struct wilc *wilc)
 	}
 
 	if (wilc && (wilc->vif[0]->ndev || wilc->vif[1]->ndev)) {
+		wilc_lock_timeout(wilc, &close_exit_sync, 5 * 1000);
+
 		for (i = 0; i < NUM_CONCURRENT_IFC; i++)
 			if (wilc->vif[i]->ndev)
 				if (vif[i]->mac_opened)
@@ -1251,6 +1257,8 @@ int wilc_netdev_init(struct wilc **wilc, struct device *dev, int io_type,
 	struct wilc_vif *vif;
 	struct net_device *ndev;
 	struct wilc *wl;
+
+	sema_init(&close_exit_sync, 0);
 
 	wl = kzalloc(sizeof(*wl), GFP_KERNEL);
 	if (!wl)
