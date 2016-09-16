@@ -454,11 +454,7 @@ static void CfgScanResult(enum scan_event scan_event,
 			mutex_lock(&priv->scan_req_lock);
 
 			if (priv->pstrScanReq) {
-				struct cfg80211_scan_info info = {
-					.aborted = false,
-				};
-
-				cfg80211_scan_done(priv->pstrScanReq, &info);
+				cfg80211_scan_done(priv->pstrScanReq, false);
 				priv->u32RcvdChCount = 0;
 				priv->bCfgScanning = false;
 				priv->pstrScanReq = NULL;
@@ -468,14 +464,10 @@ static void CfgScanResult(enum scan_event scan_event,
 			mutex_lock(&priv->scan_req_lock);
 
 			if (priv->pstrScanReq) {
-				struct cfg80211_scan_info info = {
-					.aborted = false,
-				};
-
 				update_scan_time();
 				refresh_scan(priv, 1, false);
 
-				cfg80211_scan_done(priv->pstrScanReq, &info);
+				cfg80211_scan_done(priv->pstrScanReq, false);
 				priv->bCfgScanning = false;
 				priv->pstrScanReq = NULL;
 			}
