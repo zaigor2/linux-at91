@@ -1248,7 +1248,8 @@ static int atmel_spi_setup(struct spi_device *spi)
 			return -ENOMEM;
 
 		if (as->use_cs_gpios) {
-			ret = gpio_request(npcs_pin, dev_name(&spi->dev));
+			ret = devm_gpio_request(&spi->dev,
+						npcs_pin, dev_name(&spi->dev));
 			if (ret) {
 				kfree(asd);
 				return ret;
@@ -1471,13 +1472,11 @@ msg_done:
 static void atmel_spi_cleanup(struct spi_device *spi)
 {
 	struct atmel_spi_device	*asd = spi->controller_state;
-	unsigned		gpio = (unsigned long) spi->controller_data;
 
 	if (!asd)
 		return;
 
 	spi->controller_state = NULL;
-	gpio_free(gpio);
 	kfree(asd);
 }
 
