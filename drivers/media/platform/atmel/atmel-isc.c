@@ -477,7 +477,7 @@ static int isc_configure(struct isc_device *isc)
 	const struct isc_format *current_fmt = isc->current_fmt;
 	struct isc_subdev_entity *subdev = isc->current_subdev;
 	u32 val, mask;
-	int counter = 10;
+	int counter = 100;
 
 	val = current_fmt->reg_bps | subdev->pfe_cfg0 |
 	      ISC_PFE_CFG0_MODE_PROGRESSIVE;
@@ -536,8 +536,10 @@ static int isc_start_streaming(struct vb2_queue *vq, unsigned int count)
 	regmap_read(regmap, ISC_INTSR, &val);
 
 	ret = isc_configure(isc);
-	if (unlikely(ret))
+	if (unlikely(ret)) {
+		v4l2_err(&isc->v4l2_dev, "configuration time out\n");
 		goto err_configure;
+	}
 
 	/* Enable DMA interrupt */
 	regmap_write(regmap, ISC_INTEN, ISC_INT_DDONE);
@@ -618,7 +620,13 @@ static void isc_buffer_queue(struct vb2_buffer *vb)
 	unsigned long flags;
 
 	spin_lock_irqsave(&isc->dma_queue_lock, flags);
-	list_add_tail(&buf->list, &isc->dma_queue);
+	if (!isc->cur_frm && vb2_is_streaming(vb->vb2_queue) &&
+	    list_empty(&isc->dma_queue)) {
+		isc->cur_frm = buf;
+		isc_start_dma(isc->regmap, isc->cur_frm,
+			      isc->current_fmt->reg_dctrl_dview);
+	} else
+		list_add_tail(&buf->list, &isc->dma_queue);
 	spin_unlock_irqrestore(&isc->dma_queue_lock, flags);
 }
 
