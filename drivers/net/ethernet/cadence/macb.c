@@ -923,7 +923,10 @@ static int macb_rx_frame(struct macb *bp, unsigned int first_frag,
 		unsigned int frag_len = bp->rx_buffer_size;
 
 		if (offset + frag_len > len) {
-			BUG_ON(frag != last_frag);
+			if (unlikely(frag != last_frag)) {
+				dev_kfree_skb_any(skb);
+				return -1;
+			}
 			frag_len = len - offset;
 		}
 		skb_copy_to_linear_data_offset(skb, offset,
@@ -951,8 +954,24 @@ static int macb_rx_frame(struct macb *bp, unsigned int first_frag,
 	return 0;
 }
 
+static inline void macb_init_rx_ring(struct macb *bp)
+{
+	dma_addr_t addr;
+	int i;
+
+	addr = bp->rx_buffers_dma;
+	for (i = 0; i < RX_RING_SIZE; i++) {
+		bp->rx_ring[i].addr = addr;
+		bp->rx_ring[i].ctrl = 0;
+		addr += bp->rx_buffer_size;
+	}
+	bp->rx_ring[RX_RING_SIZE - 1].addr |= MACB_BIT(RX_WRAP);
+	bp->rx_tail = 0;
+}
+
 static int macb_rx(struct macb *bp, int budget)
 {
+	bool reset_rx_queue = false;
 	int received = 0;
 	unsigned int tail;
 	int first_frag = -1;
@@ -978,15 +997,43 @@ static int macb_rx(struct macb *bp, int budget)
 
 		if (ctrl & MACB_BIT(RX_EOF)) {
 			int dropped;
-			BUG_ON(first_frag == -1);
+
+			if (unlikely(first_frag == -1)) {
+				reset_rx_queue = true;
+				continue;
+			}
 
 			dropped = macb_rx_frame(bp, first_frag, tail);
 			first_frag = -1;
+			if (unlikely(dropped < 0)) {
+				reset_rx_queue = true;
+				continue;
+			}
 			if (!dropped) {
 				received++;
 				budget--;
 			}
 		}
+	}
+
+	if (unlikely(reset_rx_queue)) {
+		unsigned long flags;
+		u32 ctrl;
+
+		netdev_err(bp->dev, "RX queue corruption: reset it\n");
+
+		spin_lock_irqsave(&bp->lock, flags);
+
+		ctrl = macb_readl(bp, NCR);
+		macb_writel(bp, NCR, ctrl & ~MACB_BIT(RE));
+
+		macb_init_rx_ring(bp);
+		macb_writel(bp, RBQP, bp->rx_ring_dma);
+
+		macb_writel(bp, NCR, ctrl | MACB_BIT(RE));
+
+		spin_unlock_irqrestore(&bp->lock, flags);
+		return received;
 	}
 
 	if (first_frag != -1)
@@ -1286,6 +1333,24 @@ dma_error:
 	return 0;
 }
 
+static inline int macb_clear_csum(struct sk_buff *skb)
+{
+	/* no change for packets without checksum offloading */
+	if (skb->ip_summed != CHECKSUM_PARTIAL)
+		return 0;
+
+	/* make sure we can modify the header */
+	if (unlikely(skb_cow_head(skb, 0)))
+		return -1;
+
+	/* initialize checksum field
+	 * This is required - at least for Zynq, which otherwise calculates
+	 * wrong UDP header checksums for UDP packets with UDP data len <=2
+	 */
+	*(__sum16 *)(skb->head + skb->csum_start + skb->csum_offset) = 0;
+	return 0;
+}
+
 static int macb_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	u16 queue_index = skb_get_queue_mapping(skb);
@@ -1323,6 +1388,11 @@ static int macb_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		netdev_dbg(bp->dev, "tx_head = %u, tx_tail = %u\n",
 			   queue->tx_head, queue->tx_tail);
 		return NETDEV_TX_BUSY;
+	}
+
+	if (macb_clear_csum(skb)) {
+		dev_kfree_skb_any(skb);
+		goto unlock;
 	}
 
 	/* Map socket buffer for DMA transfer */
@@ -1527,15 +1597,8 @@ static void gem_init_rings(struct macb *bp)
 static void macb_init_rings(struct macb *bp)
 {
 	int i;
-	dma_addr_t addr;
 
-	addr = bp->rx_buffers_dma;
-	for (i = 0; i < RX_RING_SIZE; i++) {
-		bp->rx_ring[i].addr = addr;
-		bp->rx_ring[i].ctrl = 0;
-		addr += bp->rx_buffer_size;
-	}
-	bp->rx_ring[RX_RING_SIZE - 1].addr |= MACB_BIT(RX_WRAP);
+	macb_init_rx_ring(bp);
 
 	for (i = 0; i < TX_RING_SIZE; i++) {
 		bp->queues[0].tx_ring[i].addr = 0;
@@ -1544,8 +1607,6 @@ static void macb_init_rings(struct macb *bp)
 	bp->queues[0].tx_head = 0;
 	bp->queues[0].tx_tail = 0;
 	bp->queues[0].tx_ring[TX_RING_SIZE - 1].ctrl |= MACB_BIT(TX_WRAP);
-
-	bp->rx_tail = 0;
 }
 
 static void macb_reset_hw(struct macb *bp)
@@ -2896,7 +2957,7 @@ static int macb_probe(struct platform_device *pdev)
 	dev->irq = platform_get_irq(pdev, 0);
 	if (dev->irq < 0) {
 		err = dev->irq;
-		goto err_disable_clocks;
+		goto err_out_free_netdev;
 	}
 
 	mac = of_get_mac_address(np);
