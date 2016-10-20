@@ -1,6 +1,6 @@
 VERSION = 4
 PATCHLEVEL = 4
-SUBLEVEL = 24
+SUBLEVEL = 26
 EXTRAVERSION = -linux4sam_5.5
 NAME = Blurry Fish Butt
 
