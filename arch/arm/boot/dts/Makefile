@@ -19,6 +19,7 @@ dtb-$(CONFIG_SOC_AT91SAM9) += \
 	tny_a9260.dtb \
 	usb_a9260.dtb \
 	at91sam9260ek.dtb \
+	ipro4.dtb \
 	at91sam9261ek.dtb \
 	at91sam9263ek.dtb \
 	at91-sam9_l9260.dtb \

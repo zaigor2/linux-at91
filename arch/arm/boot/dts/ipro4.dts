@@ -1,0 +1,272 @@
+/*
+ * ipro4.dts - Device Tree file for Emerson iPro4 board used on IPL500D Project
+ *             (with new ETH driver)
+ *
+ * Copyright (C) 2017 Emerson
+ * Copyright (C) 2017 Rodolfo Giometti <giometti@enneenne.com>
+ * Copyright (C) 2015-2017 Pierluigi Budel <pierluigi.budel@emerson.com>
+ *
+ * Licensed under GPLv2.
+ */
+
+/dts-v1/;
+#include "at91sam9260.dtsi"
+
+/ {
+	model = "SAM9260_IPL_ETHNEW";
+	compatible = "emerson,ipro4", "atmel,at91sam9260", "atmel,at91sam9";
+
+	chosen {
+		bootargs = "HWrev=1 mem=64M console=ttyS0,115200";
+	};
+
+	ahb {
+		apb {
+
+			dbgu: serial@fffff200 {
+				/* ttyS0 */
+				status = "okay";
+			};
+
+			pinctrl@fffff400 {
+
+				usart0 {
+				    /* only first serial port has control lines: USART0 on ttyS1. (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI) */
+					pinctrl_usart0: usart0-0 {
+						atmel,pins =
+							<AT91_PIOB 4 AT91_PERIPH_A AT91_PINCTRL_PULL_UP	/* PULL_U for PB4 periph A */
+							 AT91_PIOB 5 AT91_PERIPH_A AT91_PINCTRL_NONE>;	/* PB5 periph A */
+					};
+					
+					pinctrl_usart0_rx: usart0_rx-0 {
+						atmel,pins =
+							<AT91_PIOB 5 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;	/* PULL_U for PB5 periph B */
+					};
+
+					pinctrl_usart0_cts: usart0_cts-0 {
+						atmel,pins =
+							<AT91_PIOB 27 AT91_PERIPH_A AT91_PINCTRL_NONE	/* PB27 periph A */
+							AT91_PIOB 27 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;	/* PB27 periph B */
+					};
+
+					pinctrl_usart0_dtr_dsr: usart0_dtr_dsr-0 {
+						atmel,pins =
+							<AT91_PIOB 24 AT91_PERIPH_A AT91_PINCTRL_NONE	/* PB24 periph A */
+							 AT91_PIOB 22 AT91_PERIPH_A AT91_PINCTRL_NONE	/* PB22 periph A */
+							 AT91_PIOB 22 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;	/* PB22 periph B */
+					};
+
+					pinctrl_usart0_dcd: usart0_dcd-0 {
+						atmel,pins =
+							<AT91_PIOB 23 AT91_PERIPH_A AT91_PINCTRL_NONE	/* PB23 periph A */
+							 AT91_PIOB 23 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;	/* PB23 periph B */
+					};
+
+					pinctrl_usart0_ri: usart0_ri-0 {
+						atmel,pins =
+							<AT91_PIOB 25 AT91_PERIPH_A AT91_PINCTRL_NONE	/* PB25 periph A */
+							 AT91_PIOB 25 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;	/* PB25 periph B */
+					};
+				};
+
+				gpio_can0 {
+	 				pinctrl_gpio_can0: gpio_can0-0 {
+	 					/*
+						at91_set_gpio_output(AT91_PIN_PB28, 0); for future use
+						at91_set_gpio_output(AT91_PIN_PB30, 1);
+						*/
+						atmel,pins =
+							<AT91_PIOB 16 AT91_PERIPH_GPIO GPIO_ACTIVE_LOW>;  	/* CAN reset active Low */
+					};
+				};
+
+				usart2 {
+					pinctrl_usart2_dts: usart2_dts-0 {
+						atmel,pins =
+							<AT91_PIOB 19 AT91_PERIPH_GPIO GPIO_ACTIVE_HIGH>;
+					};
+				};
+
+				usart3 {
+					pinctrl_usart3_dts: usart3_dts-0 {
+						atmel,pins =
+							<AT91_PIOB 17 AT91_PERIPH_GPIO GPIO_ACTIVE_HIGH>;	
+					};
+				};
+				
+				local_gpio0 {
+					pinctrl_local_pin: local_gpio-0 {
+						atmel,pins =
+								<AT91_PIOC 4 AT91_PERIPH_GPIO GPIO_ACTIVE_HIGH>;
+					};
+				};
+			};
+
+			mcp251x: mcp251x_xtal {
+				compatible = "fixed-clock";
+				#clock-cells = <0>;
+				clock-frequency = <4000000>;//4Mhz
+			};
+
+			usart0: serial@fffb0000 {
+				/* ttyS1 -- Internal Modem */
+				/* This is a standard RS232 */
+				pinctrl-0 = <&pinctrl_usart0
+					     &pinctrl_usart0_rts
+					     &pinctrl_usart0_cts
+					     &pinctrl_usart0_dtr_dsr
+					     &pinctrl_usart0_dcd
+					     &pinctrl_usart0_ri
+					    >;
+				status = "okay";
+			};
+
+			usart1: serial@fffb4000 {
+				/* ttyS2 -- Remote Keyboard */
+				/* DTR management not really needed */
+				status = "okay";
+			};
+
+			usart2: serial@fffb8000 {
+				/* ttyS4 -- Dixell LAN or RS485 */
+				/* DTR HW/SW enabled/disabled from userspace using ioctl */
+				linux,rs485-enabled-at-boot-time; /* enable RS485 mode in the bootup */
+				dtr-gpios = <&pioB 19 0>;  /* for iPRO Link, the AT91_PIN_PB19 is a dtr control signal. */
+				pinctrl-0 = <&pinctrl_usart2
+							 &pinctrl_usart2_dts>;
+				status = "okay";
+			};
+
+			usart3: serial@fffd0000 {
+				/* ttyS3 -- RS485 */
+				/* Be careful on managing the DTR HW/SW from ioctl */
+				linux,rs485-enabled-at-boot-time; /* enable RS485 mode in the bootup */
+				dtr-gpios = <&pioB 17 0>;  /* for iPRO Link, the AT91_PIN_PB17 is a dtr control signal. */
+				pinctrl-0 = <&pinctrl_usart3
+							 &pinctrl_usart3_dts>;
+				status = "okay";	
+			};
+
+			macb0: ethernet@fffc4000 {
+ 				phy-mode = "mii";
+ 				pinctrl-0 = <&pinctrl_macb_rmii &pinctrl_macb_rmii_mii>;
+ 				status = "okay";
+ 			};
+
+ 			spi0: spi@fffc8000 {
+ 				/* Needed for RTC management and SPI-DEV interface */
+ 				status = "okay";
+ 				cs-gpios = <&pioA 3 0>, <&pioA 10 0>, <0>, <0>;
+ 				
+ 				spi-dev-interface@0 {
+ 					status = "okay";
+ 					compatible ="spi_dev_interface";
+ 					reg = <0>;
+ 					spi-max-frequency = <500000>;
+ 				};
+
+ 				rtc-pcf2123@1 {
+ 					compatible ="nxp,rtc-pcf2123";
+	 				reg = <1>;
+	 				spi-max-frequency = <1000000>;
+	 				spi-cs-high;
+ 				};
+ 			};
+
+
+			spi1: spi@fffcc000  {
+				status = "okay";
+				cs-gpios = <&pioB 3 GPIO_ACTIVE_LOW> , <0>, <0>, <0>;				
+ 				/* CAN bus */
+ 				pinctrl-0 = <&pinctrl_spi1
+							 &pinctrl_gpio_can0>;
+
+				can-mcp2515@0 {
+ 					compatible ="microchip,mcp2515";
+	 				reg = <0>;
+	 				clocks = <&mcp251x>;
+					clock-names = "mcp251x_clk";
+	 				interrupt-parent = <&pioB>;
+ 					interrupts = <18 GPIO_ACTIVE_LOW>;
+	 				spi-max-frequency = <5000000>;
+ 				};
+ 			};
+		};
+
+		local_gpio {
+			/* For the local gpio virtual driver: "/dev/gpio"  */
+			compatible = "emerson,local-gpio";
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_local_pin>; /* init the pinmux functin */
+			watchdog-gpios = <&pioC 4 0>;  /* for arm926ej-s CPU, the PC4 is Hardware watchdog pin. */
+			switch-gpios = <&pioA 31 0>;  /* for XWEB, it will be used to switch feature. */
+			status = "okay";
+		};
+
+		usb0: ohci@500000 {
+			status = "okay";
+		};
+
+		nand0: nand@40000000 {
+			nand-bus-width = <8>;
+			nand-ecc-mode = "soft";
+			status = "okay";
+
+			at91bootstrap@0 {
+				label = "at91bootstrap";
+				reg = <0x0 0x20000>;
+			};
+
+			uboot@20000 {
+				label = "uboot";
+				reg = <0x20000 0x40000>;
+			};
+
+			ubootenv1@60000 {
+				label = "env1";
+				reg = <0x60000 0x20000>;
+			};
+
+			ubootenv2@80000 {
+				label = "env2";
+				reg = <0x80000 0x20000>;
+			};
+
+			dtb@a0000 {
+				label = "dtb";
+				reg = <0xa0000 0x20000>;
+			};
+
+			linux1@b0000 {
+				label = "linux1";
+				reg = <0xc0000 0xa00000>;
+			};
+			
+			linux2@ab0000 {
+				label = "linux2";
+				reg = <0xac0000 0xa00000>;
+			};
+
+			root1@14b0000 {
+				label = "root1";
+				reg = <0x14c0000 0x4000000>;
+			};
+
+			root2@54b0000 {
+				label = "root2";
+				reg = <0x54c0000 0x4000000>;
+			};
+
+			app@94b0000 {
+				label = "app";
+				reg = <0x94c0000 0x4000000>;
+			};
+
+			data@d4b0000 {
+				label = "data";
+				reg = <0xd4c0000  0x12b40000>;
+			};
+
+		};
+	};
+};
